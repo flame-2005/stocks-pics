@@ -1,0 +1,9 @@
+# Verified on Python 3.12.6 / Windows 11 on 2026-10-30
+yfinance==1.7.0
+pandas==3.1.0
+numpy==2.5.4
+pyarrow==26.0.0
+requests==2.34.2
+python-dotenv==1.2.4
+tzdata>=2026.1
+pytest==9.2.0
