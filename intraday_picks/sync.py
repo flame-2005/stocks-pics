@@ -27,6 +27,7 @@ TABLES: dict[str, tuple[str, tuple[str, ...]]] = {
     "picks": ("id", ("reasons_json", "flags_json", "components_json")),
     "outcomes": ("pick_id", ()),
     "watchlist": ("month,symbol", ()),
+    "focus_verdicts": ("trade_date,symbol", ("reasons_json", "flags_json")),
 }
 BATCH = 500
 

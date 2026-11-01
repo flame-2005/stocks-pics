@@ -28,6 +28,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <Link className="nav-link" href="/history">History</Link>
                 <Link className="nav-link" href="/market">Market</Link>
                 <Link className="nav-link" href="/watchlist">Watchlist</Link>
+                <Link className="nav-link" href="/focus">Your list</Link>
               </nav>
               <form action="/auth/signout" method="post" className="ml-auto flex items-center gap-3 text-sm">
                 <span className="muted hidden sm:inline">{user.email}</span>

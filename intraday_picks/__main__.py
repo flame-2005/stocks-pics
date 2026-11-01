@@ -53,6 +53,8 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--out", help="CSV path for per-pick results")
     wl = sub.add_parser("watchlist", help="build this month's 30-stock watch universe (+ Nifty) from last month's data")
     common(wl)
+    fc = sub.add_parser("focus", help="print the current lean for your list (focus_list.txt) without sending anything")
+    common(fc)
     sync = sub.add_parser("sync", help="push local SQLite tables to Supabase")
     sync.add_argument("--since", type=_date, help="only rows with trade_date >= this date")
     sync.add_argument("--all", action="store_true", help="push every row (default: last 10 days)")
@@ -80,6 +82,24 @@ def main(argv: list[str] | None = None) -> int:
         from . import sync as syncmod
 
         syncmod.run(since=args.since, push_all=args.all)
+        return 0
+    if args.mode == "focus":
+        from . import config as cfg, focus, pipeline as pl, sentiment, storage, trading_calendar as cal
+        from . import universe as uni
+        from .util import now_ist
+
+        session = args.as_of or cal.last_completed_session(now_ist())
+        trade_date = cal.next_trading_day(session)
+        symbols = focus.load_symbols()
+        daily, intraday = focus.load_data(symbols, session, args.offline)
+        udf = uni.load_universe()
+        feats = focus.build_features(symbols, daily, intraday, dict(zip(udf["symbol"], udf["industry"])))
+        sector_map = pl._sector_map_from_rows(storage.load_sectors(trade_date))
+        mood = sentiment.assess(trade_date, daily.get(cfg.NIFTY), None, None, None)
+        for v in focus.preview(trade_date, symbols, feats, sector_map, mood):
+            flags = ("  ⚠ " + "; ".join(v.flags)) if v.flags else ""
+            print(f"{v.symbol:12s} {v.verdict:10s} {v.strength:6s} {'; '.join(v.reasons)}{flags}")
+        print(f"\n{len(symbols)} symbols in your list (edit focus_list.txt to change); firm verdicts come at 09:34 on {trade_date}.")
         return 0
     if args.mode == "watchlist":
         from . import watchlist

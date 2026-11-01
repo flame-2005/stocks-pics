@@ -1,0 +1,6 @@
+# Your list: one NSE symbol per line. NIFTY is always included (traded through the NIFTYBEES ETF).
+# Lines starting with # are ignored. Edit this file any time; the next run picks it up.
+# Examples:
+# RELIANCE
+# HDFCBANK
+# TATAMOTORS

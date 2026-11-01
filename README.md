@@ -181,3 +181,20 @@ supabase/migrations/ Postgres schema + RLS for the dashboard
 scripts/             run.cmd, register_tasks.ps1
 tests/               pytest suite on synthetic candles (no network)
 ```
+
+## Your list (Nifty + your own companies)
+
+`focus_list.txt` in the project root holds one NSE symbol per line (comments with `#`). The Nifty is
+always included and is traded through the NIFTYBEES ETF. Every symbol on the list gets its own daily
+verdict, separate from the system's picks:
+
+| Time | Verdict |
+|---|---|
+| 20:00 and 09:10 | a lean: "lean BUY", "lean SELL" or "NO" from yesterday's candle, the trend and the market mood |
+| 09:34 | a firm "BUY", "SELL" or "NO" with entry, stop, target and quantity when it is a trade: the Nifty's opening candle sets the side, the symbol's own opening candle has to confirm it, and a company also needs a setup from the day before |
+| 15:45 | the result of that verdict (target / stop / square-off, R and rupees) |
+
+The verdicts appear as a "Your list" section in each Telegram message, on the dashboard's **Your list**
+page (with a running record per symbol), and in the `focus_verdicts` table. Run
+`python -m intraday_picks focus` any time to print the current lean without sending anything.
+Database: run `supabase/migrations/0003_focus.sql` once (or `supabase/setup.sql` again).

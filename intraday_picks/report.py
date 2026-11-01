@@ -60,7 +60,7 @@ def pick_block(p: TradePlan, idx: int) -> str:
     lines = [
         f"<b>{idx}. {esc(p.symbol)}</b> · {side} · {esc(sector_short(p.industry))} · score {p.score:g}",
         f"   {side} {trigger} ₹{fmt_inr(p.entry)} · SL ₹{fmt_inr(p.stop)} ({stop_dir}{p.stop_pct:g}%) · "
-        f"Target ₹{fmt_inr(p.target)} ({config.TARGET_R:g}R)",
+        f"Target ₹{fmt_inr(p.target)} ({abs(p.target - p.entry) / max(abs(p.entry - p.stop), 1e-9):.1f}R)",
         f"   Qty {p.qty} · risk ₹{fmt_inr(p.risk_amount, 0)} · notional ₹{fmt_inr(p.notional, 0)}",
     ]
     if p.reasons:
@@ -237,3 +237,54 @@ def orb_decision_message(trade_date, direction: str, nifty_pct: float | None, pl
         parts.append("Not confirmed: " + " · ".join(f"{esc(sym)} ({esc('; '.join(why))})" for sym, why in rejected[:8]))
     parts.append(f"Max {config.MAX_TRADES_PER_DAY} trades; stop for the day at the loss cap.")
     return "\n\n".join(parts)
+
+
+# ----------------------------------------------------------------------------- your list (focus)
+VERDICT_WORD = {"lean_buy": "lean BUY", "lean_sell": "lean SELL", "buy": "BUY", "sell": "SELL", "no": "NO"}
+VERDICT_ICON = {"lean_buy": "🟢", "lean_sell": "🔴", "buy": "🟢", "sell": "🔴", "no": "⚪"}
+
+
+def _get(v, key):
+    return v.get(key) if isinstance(v, dict) else getattr(v, key, None)
+
+
+def focus_block(verdicts, phase: str) -> str:
+    """One line per symbol in the user's list. `phase`: prep | morning | orb | scorecard."""
+    if not verdicts:
+        return ""
+    title = {
+        "prep": "Your list (lean for tomorrow; decided at 09:34)",
+        "morning": "Your list (lean; decided at 09:34)",
+        "orb": "Your list: 09:34 verdicts",
+        "scorecard": "Your list: results",
+    }[phase]
+    lines = [f"<b>{esc(title)}</b>"]
+    for v in verdicts:
+        verdict = _get(v, "verdict") or "no"
+        word = VERDICT_WORD.get(verdict, "NO")
+        strength = f" ({esc(_get(v, 'strength'))})" if _get(v, "strength") else ""
+        name = esc(_get(v, "symbol"))
+        if _get(v, "symbol") == "NIFTY" and verdict in ("buy", "sell"):
+            name += f" via {esc(config.FOCUS_NIFTY_INSTRUMENT)}"
+        parts = [f"{VERDICT_ICON.get(verdict, '⚪')} <b>{name}</b>: {word}{strength}"]
+        if verdict in ("buy", "sell") and _get(v, "entry"):
+            trigger = "above" if _get(v, "side") == "long" else "below"
+            parts.append(
+                f"   {word} {trigger} ₹{fmt_inr(_get(v, 'entry'))} · SL ₹{fmt_inr(_get(v, 'stop'))} "
+                f"({_get(v, 'stop_pct'):g}%) · target ₹{fmt_inr(_get(v, 'target'))} · qty {_get(v, 'qty')}"
+            )
+        reasons = _get(v, "reasons") or []
+        if reasons:
+            parts.append("   " + esc("; ".join(reasons[:3])))
+        for fl in (_get(v, "flags") or [])[:3]:
+            parts.append(f"   ⚠ {esc(fl)}")
+        if _get(v, "note"):
+            parts.append(f"   ℹ {esc(_get(v, 'note'))}")
+        if phase == "scorecard" and _get(v, "result"):
+            r = _get(v, "r_multiple")
+            pnl = _get(v, "pnl")
+            tail = f" {r:+.2f}R" if r is not None else ""
+            tail += f" ₹{fmt_inr(pnl, 0)}" if pnl is not None else ""
+            parts.append(f"   → {esc(_get(v, 'result'))}{tail}")
+        lines.append("\n".join(parts))
+    return "\n\n".join(lines)

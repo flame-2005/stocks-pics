@@ -127,3 +127,33 @@ export type WatchlistRow = {
   r_last_month: number | null;
   vix: number | null;
 };
+
+export type FocusVerdict = {
+  trade_date: string;
+  symbol: string;
+  instrument: string | null;
+  phase: string | null;
+  verdict: "lean_buy" | "lean_sell" | "buy" | "sell" | "no" | string | null;
+  strength: string | null;
+  side: "long" | "short" | null;
+  entry: number | null;
+  stop: number | null;
+  target: number | null;
+  qty: number | null;
+  stop_pct: number | null;
+  score_long: number | null;
+  score_short: number | null;
+  regime: string | null;
+  setup_type: string | null;
+  setup_label: string | null;
+  close: number | null;
+  reasons_json: string[] | null;
+  flags_json: string[] | null;
+  note: string | null;
+  result: string | null;
+  entry_price: number | null;
+  exit_price: number | null;
+  r_multiple: number | null;
+  pnl: number | null;
+  updated_at: string | null;
+};

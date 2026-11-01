@@ -119,6 +119,18 @@ CREATE TABLE IF NOT EXISTS watchlist (
     PRIMARY KEY (month, symbol)
 );
 
+CREATE TABLE IF NOT EXISTS focus_verdicts (
+    trade_date TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    instrument TEXT, phase TEXT, verdict TEXT, strength TEXT, side TEXT,
+    entry REAL, stop REAL, target REAL, qty INTEGER, stop_pct REAL,
+    score_long REAL, score_short REAL, regime TEXT, setup_type TEXT, setup_label TEXT, close REAL,
+    reasons_json TEXT, flags_json TEXT, note TEXT,
+    result TEXT, entry_price REAL, exit_price REAL, r_multiple REAL, pnl REAL,
+    updated_at TEXT,
+    PRIMARY KEY (trade_date, symbol)
+);
+
 CREATE TABLE IF NOT EXISTS outcomes (
     pick_id INTEGER PRIMARY KEY REFERENCES picks(id),
     trade_date TEXT,
@@ -456,6 +468,50 @@ def load_watchlist(month: str | None = None) -> list[dict]:
         if not month:
             return []
         return rows(conn.execute("SELECT * FROM watchlist WHERE month=? ORDER BY is_index DESC, rank", (month,)))
+
+
+FOCUS_COLS = (
+    "trade_date", "symbol", "instrument", "phase", "verdict", "strength", "side", "entry", "stop", "target", "qty",
+    "stop_pct", "score_long", "score_short", "regime", "setup_type", "setup_label", "close", "reasons_json",
+    "flags_json", "note",
+)
+
+
+def save_focus(trade_date: date | str, verdicts) -> None:
+    """Upsert verdict fields; result fields are left untouched (filled by the scorecard)."""
+    ts = now_ist().isoformat(timespec="seconds")
+    with db() as conn:
+        for v in verdicts:
+            row = v.to_row() if hasattr(v, "to_row") else dict(v)
+            row["trade_date"] = _iso(trade_date)
+            values = [row.get(c) for c in FOCUS_COLS]
+            updates = ", ".join(f"{c}=excluded.{c}" for c in FOCUS_COLS if c not in ("trade_date", "symbol"))
+            conn.execute(
+                f"INSERT INTO focus_verdicts({', '.join(FOCUS_COLS)}, updated_at) VALUES ({', '.join('?' for _ in FOCUS_COLS)}, ?) "
+                f"ON CONFLICT(trade_date, symbol) DO UPDATE SET {updates}, updated_at=excluded.updated_at",
+                (*values, ts),
+            )
+
+
+def update_focus_outcome(trade_date: date | str, symbol: str, res: dict) -> None:
+    with db() as conn:
+        conn.execute(
+            "UPDATE focus_verdicts SET result=?, entry_price=?, exit_price=?, r_multiple=?, pnl=?, updated_at=? WHERE trade_date=? AND symbol=?",
+            (res.get("result"), res.get("entry_price"), res.get("exit_price"), res.get("r_multiple"), res.get("pnl"),
+             now_ist().isoformat(timespec="seconds"), _iso(trade_date), symbol),
+        )
+
+
+def load_focus(trade_date: date | str) -> list[dict]:
+    with db() as conn:
+        out = rows(conn.execute("SELECT * FROM focus_verdicts WHERE trade_date=? ORDER BY rowid", (_iso(trade_date),)))
+    for r in out:
+        for key in ("reasons_json", "flags_json"):
+            try:
+                r[key.replace("_json", "")] = json.loads(r[key]) if r[key] else []
+            except (TypeError, json.JSONDecodeError):
+                r[key.replace("_json", "")] = []
+    return out
 
 
 def table_rows(table: str, since: str | None = None) -> list[dict]:

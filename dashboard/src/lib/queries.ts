@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Candidate, FiiDii, FunnelCounts, MarketContext, PickResult, SectorStrength, WatchlistRow } from "./types";
+import type { Candidate, FiiDii, FocusVerdict, FunnelCounts, MarketContext, PickResult, SectorStrength, WatchlistRow } from "./types";
 
 type Client = SupabaseClient;
 
@@ -133,4 +133,38 @@ export async function watchlistData(supabase: Client, month?: string | null) {
     indices: rows.filter((r) => r.is_index),
     stocks: rows.filter((r) => !r.is_index),
   };
+}
+
+export async function focusData(supabase: Client, date?: string | null) {
+  const { data: dateRows } = await supabase.from("focus_verdicts").select("trade_date").order("trade_date", { ascending: false });
+  const dates = [...new Set(((dateRows ?? []) as { trade_date: string }[]).map((r) => r.trade_date))];
+  const current = date && dates.includes(date) ? date : dates[0] ?? null;
+  if (!current) return { dates, current, rows: [] as FocusVerdict[] };
+  const { data } = await supabase.from("focus_verdicts").select("*").eq("trade_date", current);
+  const rows = ((data ?? []) as FocusVerdict[]).sort((a, b) => (a.symbol === "NIFTY" ? -1 : b.symbol === "NIFTY" ? 1 : a.symbol.localeCompare(b.symbol)));
+  return { dates, current, rows };
+}
+
+export async function focusHistory(supabase: Client) {
+  const { data } = await supabase.from("focus_verdicts").select("symbol,trade_date,verdict,result,r_multiple,pnl");
+  const rows = (data ?? []) as Pick<FocusVerdict, "symbol" | "trade_date" | "verdict" | "result" | "r_multiple" | "pnl">[];
+  const by = new Map<string, typeof rows>();
+  for (const r of rows) by.set(r.symbol, [...(by.get(r.symbol) ?? []), r]);
+  return [...by.entries()]
+    .map(([symbol, list]) => {
+      const trades = list.filter((r) => (r.verdict === "buy" || r.verdict === "sell") && r.result);
+      const targets = trades.filter((r) => r.result === "target").length;
+      const stops = trades.filter((r) => r.result === "stop").length;
+      return {
+        symbol,
+        days: new Set(list.map((r) => r.trade_date)).size,
+        trades: trades.length,
+        targets,
+        stops,
+        hitRate: targets + stops ? (targets / (targets + stops)) * 100 : null,
+        totalR: trades.reduce((s, r) => s + (r.r_multiple ?? 0), 0),
+        pnl: trades.reduce((s, r) => s + (r.pnl ?? 0), 0),
+      };
+    })
+    .sort((a, b) => (a.symbol === "NIFTY" ? -1 : b.symbol === "NIFTY" ? 1 : a.symbol.localeCompare(b.symbol)));
 }

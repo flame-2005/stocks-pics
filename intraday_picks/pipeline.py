@@ -17,7 +17,7 @@ from statistics import median
 import pandas as pd
 
 from . import (
-    config, datasource as ds, nse, notify, orb, outcomes as oc, plan as planmod, report, scoring, screens,
+    config, datasource as ds, focus, nse, notify, orb, outcomes as oc, plan as planmod, report, scoring, screens,
     sectors as sec, sentiment, storage, trading_calendar as cal, universe as uni,
 )
 from .confirm import confirm_picks
@@ -76,6 +76,26 @@ def _rank(feats, funnel, sector_map, mood) -> scoring.RankResult:
         return scoring.rank(feats, funnel, sector_map, mood)
     per_side = 0 if mood.label == "no_trade" else config.ORB_CANDIDATES_PER_SIDE
     return scoring.rank(feats, funnel, sector_map, mood, sides=["long", "short"], quota={"long": per_side, "short": per_side})
+
+
+def _focus_preview(trade_date: date, session: date, universe_df: pd.DataFrame, daily: dict, intraday: dict,
+                   sector_map: dict, mood, offline: bool):
+    """Evening lean for the user's list; symbols outside the Nifty 100 are fetched on the spot."""
+    try:
+        symbols = focus.load_symbols()
+        have = set(daily) | set(intraday)
+        if any(t not in have for t in focus.tickers(symbols)):
+            d2, i2 = focus.load_data(symbols, session, offline)
+            daily = {**d2, **daily}
+            intraday = {**i2, **intraday}
+        industries = dict(zip(universe_df["symbol"], universe_df["industry"]))
+        feats = focus.build_features(symbols, daily, intraday, industries)
+        verdicts = focus.preview(trade_date, symbols, feats, sector_map, mood)
+        storage.save_focus(trade_date, verdicts)
+        return verdicts
+    except Exception as exc:  # noqa: BLE001 - the list must never break the main run
+        logger.warning("focus preview failed: %s", exc)
+        return []
 
 
 def _build_plans(result: scoring.RankResult) -> list[planmod.TradePlan]:
@@ -145,6 +165,9 @@ def run_prep(as_of: date | None = None, dry_run: bool = False, force: bool = Fal
 
         text = report.prep_message(trade_date, mood, result.counts, result.shortlist, plans, sectors,
                                    candidates=result.picks if _orb() else None)
+        focus_rows = _focus_preview(trade_date, session, universe_df, daily, intraday, sec.as_map(sectors), mood, offline)
+        if focus_rows:
+            text += "\n\n" + report.focus_block(focus_rows, "prep")
         message_id = notify.send(text, dry_run=dry_run)
         storage.finish_run(run_id, "ok", message_id, f"{len(plans)} provisional picks, mood {mood.label}")
         from . import watchlist  # local import: watchlist imports pipeline helpers
@@ -215,6 +238,9 @@ def run_morning(as_of: date | None = None, dry_run: bool = False, force: bool = 
             text = report.orb_candidates_message(trade_date, mood, result.counts, longs, shorts, guards)
         else:
             text = report.morning_message(trade_date, mood, result.counts, plans, guards)
+        focus_rows = storage.load_focus(trade_date)
+        if focus_rows:
+            text += "\n\n" + report.focus_block(focus_rows, "morning")
         message_id = notify.send(text, dry_run=dry_run)
         storage.finish_run(run_id, "ok", message_id, f"{len(plans)} picks, mood {mood.label}")
         return {"trade_date": trade_date, "mood": mood, "plans": plans, "result": result}
@@ -368,6 +394,17 @@ def _confirm_orb(trade_date: date, dry_run: bool, offline: bool, replay: bool) -
                     plans.append(p)
         storage.save_picks(trade_date, plans, "orb", status="confirmed")
         text = report.orb_decision_message(trade_date, direction, n_or.pct, plans, rejected, caution)
+        try:
+            symbols = focus.load_symbols()
+            f_daily, _ = focus.load_data(symbols, cal.prev_trading_day(trade_date), offline=True)
+            f_bars = ds.intraday(focus.tickers(symbols), interval="15m", period="60d", offline=offline)
+            udf = uni.load_universe()
+            f_feats = focus.build_features(symbols, f_daily, {}, dict(zip(udf["symbol"], udf["industry"])))
+            f_verdicts = focus.decide(trade_date, symbols, f_feats, f_daily, f_bars, n_or, direction, ctx.get("mood"), ctx.get("vix"), caution)
+            storage.save_focus(trade_date, f_verdicts)
+            text += "\n\n" + report.focus_block(f_verdicts, "orb")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("focus decision failed: %s", exc)
         message_id = notify.send(text, reply_to=storage.run_message_id(trade_date, "morning"), dry_run=dry_run)
         storage.finish_run(run_id, "ok", message_id, f"nifty {direction} {n_or.pct:+.2f}%: {len(plans)} picks, {len(rejected)} rejected")
         return plans
@@ -409,6 +446,16 @@ def run_scorecard(as_of: date | None = None, dry_run: bool = False, force: bool 
         stats["cum_r"] = round(sum(h["r_multiple"] for h in confirmed_hist), 2)
         stats["days"] = len({h["trade_date"] for h in history})
         text = report.scorecard_message(trade_date, evaluated, nifty_ret, stats)
+        try:
+            f_rows = storage.load_focus(trade_date)
+            if f_rows:
+                f_eval = focus.evaluate(trade_date, f_rows, offline=offline)
+                for row in f_eval:
+                    if row.get("result"):
+                        storage.update_focus_outcome(trade_date, row["symbol"], row)
+                text += "\n\n" + report.focus_block(f_eval, "scorecard")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("focus scorecard failed: %s", exc)
         message_id = notify.send(text, reply_to=storage.run_message_id(trade_date, "morning"), dry_run=dry_run)
         storage.finish_run(run_id, "ok", message_id, f"{len(evaluated)} evaluated, {stats['total_r']:+.2f}R")
         return evaluated

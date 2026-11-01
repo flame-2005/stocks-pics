@@ -134,6 +134,10 @@ ORB_TARGET_R = 1.0                # backtest: 1R target had the best win rate at
 ORB_CANDIDATES_PER_SIDE = 6       # candidates published at 09:10 for each side
 ORB_ENTRY_DEADLINE = time(11, 0)  # an opening-range break after this is not taken
 
+# --------------------------------------------------------------------------- your list (focus)
+FOCUS_LIST_FILE = ROOT / "focus_list.txt"
+FOCUS_NIFTY_INSTRUMENT = "NIFTYBEES"   # ETF used to trade the Nifty verdict
+
 # --------------------------------------------------------------------------- trade plan
 STOP_ATR_MULT = 0.6
 STOP_MIN_PCT = 0.5
