@@ -5,7 +5,14 @@ const nextConfig: NextConfig = {
   // so the app renders dynamically per request instead of using Cache Components.
   cacheComponents: false,
   async headers() {
-    return [{ source: "/:path*", headers: [{ key: "Cache-Control", value: "no-store, must-revalidate" }] }];
+    // Pages must never be served stale. Next's own assets and hot-reload channel are excluded:
+    // a no-store header on /_next/* makes the dev client reload the page in a loop.
+    return [
+      {
+        source: "/((?!_next/|favicon.ico).*)",
+        headers: [{ key: "Cache-Control", value: "no-store, must-revalidate" }],
+      },
+    ];
   },
   turbopack: {
     rules: {
